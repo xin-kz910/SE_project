@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}編輯專案{% endblock %}
+{% block content %}
+<div class="section-card" style="max-width:800px;margin:24px auto;">
+  <h2 style="margin:0 0 12px">編輯專案</h2>
+  <form action="/projects/{{ project.id }}/edit" method="post" class="form">
+    <div class="field">
+      <label>專案名稱</label>
+      <input type="text" name="title" value="{{ project.title }}" required>
+    </div>
+    <div class="field">
+      <label>專案描述</label>
+      <textarea name="description" required>{{ project.description }}</textarea>
+    </div>
+    <div class="form-actions">
+      <button type="submit" class="btn btn-primary">儲存變更</button>
+      <a href="/projects/{{ project.id }}" class="btn">取消</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

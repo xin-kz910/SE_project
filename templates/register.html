@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block title %}註冊{% endblock %}
+
+{% block content %}
+{% set e_ctx = e if e is defined else None %}
+{% set e_qs = request.query_params.get('e') %}
+{% set e_final = e_ctx if e_ctx else e_qs %}
+{# 顯示用的錯誤碼集合（包含 fullname） #}
+{% set error_codes = ['user','phone','pwd','agree','role','fullname','email'] %}
+
+<section class="page section-narrow">
+  <header class="page-head">
+    <h1>建立帳號</h1>
+  </header>
+
+  <form class="register-form register-form-pro{% if e_final in error_codes %} has-error{% endif %}"
+        action="/register" method="post" novalidate>
+
+    <div class="form-row-2">
+      <div class="field">
+        <label for="username">帳號（Username）</label>
+        <input id="username" name="username" type="text" required autocomplete="username"
+               value="{{ (prefill.username if prefill is defined else '') | default('') }}">
+      </div>
+      <div class="field">
+        <label for="full_name">姓名</label>
+        <input id="full_name" name="full_name" type="text" required
+               value="{{ (prefill.full_name if prefill is defined else '') | default('') }}">
+      </div>
+    </div>
+
+    <div class="form-row-2">
+      <div class="field">
+        <label for="password">密碼（Password）</label>
+        <input id="password" name="password" type="password" required autocomplete="new-password">
+      </div>
+      <div class="field">
+        <label for="password2">確認密碼</label>
+        <input id="password2" name="password2" type="password" required autocomplete="new-password">
+      </div>
+    </div>
+
+    <div class="form-row-2">
+      <div class="field">
+        <label for="phone">電話（可留空）</label>
+        <input id="phone" name="phone" type="tel" inputmode="tel" placeholder="09xx-xxx-xxx"
+               value="{{ (prefill.phone if prefill is defined else '') | default('') }}">
+      </div>
+      <div class="field">
+        <label for="email">Email（可留空）</label>
+        <input id="email" name="email" type="email" autocomplete="email" required
+               value="{{ (prefill.email if prefill is defined else '') | default('') }}">
+      </div>
+    </div>
+
+    <div class="field">
+      <label for="role">角色（Role）</label>
+      <select id="role" name="role" required>
+        <option value="client" {{ 'selected' if (prefill is defined and prefill.role=='client') else '' }}>委託人</option>
+        <option value="freelancer" {{ 'selected' if (prefill is defined and prefill.role=='freelancer') else '' }}>接案人</option>
+      </select>
+    </div>
+
+    <div class="field agree-line">
+      <input type="checkbox" name="agree" id="agree"
+             {{ 'checked' if (prefill is defined and (prefill.agree==True or prefill.agree=='on')) else '' }}>
+      <label for="agree">我已閱讀並同意 <a href="/privacy" target="_blank">隱私權政策</a> 與 <a href="/terms" target="_blank">服務條款</a></label>
+    </div>
+
+    {% if e_final in error_codes %}
+      <div class="form-alert error">
+        {% if e_final=='user' %}此帳號已被使用，請改用其他名稱。
+        {% elif e_final=='phone' %}電話格式不正確（允許 8–20 位，且可含 - + () 空白）。
+        {% elif e_final=='pwd' %}兩次輸入的密碼不一致。
+        {% elif e_final=='agree' %}請勾選並同意隱私權政策與服務條款。
+        {% elif e_final=='role' %}角色選擇有誤，請重新選擇「委託人」或「接案人」。
+        {% elif e_final=='fullname' %}請輸入姓名。
+        {% elif e_final=='email' %}請輸入有效的 Email。
+        {% endif %}
+      </div>
+    {% endif %}
+
+    <button class="btn btn-primary" type="submit">註冊</button>
+  </form>
+
+  <p class="page-footnote">已有帳號？<a href="/login">馬上登入</a></p>
+</section>
+
+<script>
+  const params = new URLSearchParams(window.location.search);
+  if (params.get("ok") === "1") {
+    alert("✅ 註冊成功！請返回登入頁面登入。");
+    // 註冊成功後可以自動導向登入頁，例如：
+    window.location.href = "/login";
+  }
+</script>
+ 
+{% endblock %}
+

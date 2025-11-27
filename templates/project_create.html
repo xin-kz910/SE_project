@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}建立專案{% endblock %}
+{% block content %}
+<div class="section-card" style="max-width:800px;margin:24px auto;">
+  <h2 style="margin:0 0 12px">建立專案</h2>
+  <form action="/projects/create" method="post" class="form">
+    <div class="field">
+      <label>專案名稱</label>
+      <input type="text" name="title" required>
+    </div>
+    <div class="field">
+      <label>專案描述</label>
+      <textarea name="description" required></textarea>
+      <div class="help">提供可交付項目、時程與驗收方式，能吸引更好的投標。</div>
+    </div>
+    <div class="field">
+      <label for="budget">預算（元）</label>
+      <input id="budget" name="budget" type="number" min="0" step="100"
+            placeholder="例如 2000" list="budget-steps" />
+      <datalist id="budget-steps">
+        <option value="0"></option>
+        <option value="100"></option>
+        <option value="200"></option>
+        <option value="300"></option>
+        <option value="400"></option>
+        <option value="500"></option>
+        <option value="1000"></option>
+        <option value="1500"></option>
+        <option value="2000"></option>
+        <option value="3000"></option>
+        <option value="5000"></option>
+      </datalist>
+      <small class="help">可自行輸入；上下鍵以 100 為增減單位。</small>
+    </div>
+    <div class="form-actions">
+      <button type="submit" class="btn btn-primary">送出</button>
+      <a href="/" class="btn">取消</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

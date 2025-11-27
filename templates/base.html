@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <title>{% block title %}工作委託平台{% endblock %}</title>
+  <link rel="stylesheet" href="/www/style.css" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+</head>
+<body>
+<header id="main-header">
+  <div class="header-bar">
+    <!-- 左邊：Logo -->
+    <a href="/" class="header-logo">🧩 工作委託平台</a>
+
+    <!-- 右邊：使用者狀態 -->
+    <div class="header-actions">
+      {% if request.session.get("user") %}
+        {% set u = request.session.get("user") %}
+        <span class="user-role">{{ '委託人' if u.role=='client' else '接案人' }}</span>
+        <span class="user-name">您好，{{ u.username }}</span>
+        <a href="/logout" class="btn-logout">登出</a>
+      {% else %}
+        <a href="/login" class="btn-login">登入</a>
+        <a href="/register" class="btn-register">註冊</a>
+      {% endif %}
+    </div>
+  </div>
+</header>
+
+
+<main class="container">
+  {% block content %}{% endblock %}
+</main>
+
+<footer class="footer">
+  <div class="container">© 2025 KL STUDIO ｜ 委託平台</div>
+</footer>
+
+<script>
+// Query string notices（沿用原行為）
+const params = new URLSearchParams(window.location.search);
+if (params.get('upload') === 'success') { showNotice("✅ 檔案已上傳成功，等待委託人審核。", "success"); }
+if (params.get('action') === 'closed') { showNotice("✅ 專案已成功結案。", "success"); }
+if (params.get('action') === 'reopened') { showNotice("❗ 專案已退件，等待接案人重新上傳。", "warn"); }
+function showNotice(msg, type){ const box=document.createElement('div'); box.className='notice '+type; box.innerText=msg; document.body.appendChild(box); setTimeout(()=>box.remove(),4000); }
+</script>
+
+{% if request.session.get("user") and request.session.get("user").role == 'client' %}
+  <a href="/projects/create" class="fab" title="新增專案">＋</a>
+{% endif %}
+
+</body>
+</html>

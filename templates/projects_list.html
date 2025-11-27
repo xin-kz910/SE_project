@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block title %}專案列表{% endblock %}
+
+{% block content %}
+<div class="section-card">
+{% if user and user.role == 'client' %}
+  <h2 class="role-title client">委託人工作台</h2>
+{% elif user and user.role == 'freelancer' %}
+  <h2 class="role-title freelancer">接案人工作台</h2>
+{% else %}
+  <h2 class="role-title visitor">接案平台</h2>
+{% endif %}
+
+{% if user and user.role == 'client' %}
+  <h2 style="margin:8px 0 0">我的專案</h2>
+  <div class="tabs">
+    <a href="/?tab=open" class="{{ 'active' if tab=='open' else '' }}">🟩 投放中 <span class="count">{{ stats.open }}</span></a>
+    <a href="/?tab=progress" class="{{ 'active' if tab=='progress' else '' }}">🟧 進行中 ({{ stats.progress }})</a>
+    <a href="/?tab=closed" class="{{ 'active' if tab=='closed' else '' }}">⬜ 歷史專案 ({{ stats.closed }})</a>
+  </div>
+{% elif user and user.role == 'freelancer' %}
+  <h2 style="margin:8px 0 0">接案專區</h2>
+  <div class="tabs">
+    <a href="/?tab=open" class="{{ 'active' if tab=='open' else '' }}">🟩 可接案 ({{ stats.open }})</a>
+    <a href="/?tab=progress" class="{{ 'active' if tab=='progress' else '' }}">🟧 進行中 ({{ stats.progress }})</a>
+    <a href="/?tab=closed" class="{{ 'active' if tab=='closed' else '' }}">⬜ 歷史紀錄 ({{ stats.closed }})</a>
+  </div>
+{% else %}
+  <h2 style="margin:8px 0 0">可接案專案</h2>
+{% endif %}
+
+<hr style="border:none;border-top:1px solid var(--line);margin:12px 0" />
+
+<ul class="project-list">
+  {% for p in projects %}
+  <li class="card is-{{ 'open' if p.status=='open' else ('progress' if p.status=='in_progress' else ('reopened' if p.status=='reopened' else 'closed')) }}">
+    <!-- ✅ 整張卡片的透明連結：一定要是第一個子元素 -->
+    <a class="card-link" href="/projects/{{ p.id }}" aria-label="查看詳情"></a>
+
+    <div class="row">
+      <div class="title">
+        <span class="seq">#{{ loop.index }}</span>
+        <span class="status-dot"></span>
+        <span class="card-title-text">{{ p.title }}</span>
+      </div>
+      <div class="badges">
+        {% if user and user.role=='client' and tab=='open' and p.bid_count is defined %}
+          <span class="badge blue">📝 {{ p.bid_count }} 位報價</span>
+        {% endif %}
+        {% if user and user.role=='freelancer' and tab=='open' and p.has_bid %}
+          <span class="badge yellow">已報價</span>
+        {% endif %}
+        {% if tab=='progress' %}
+          {% if user and user.role=='client' and p.delivery_count|default(0) > 0 %}
+            <span class="badge green">待審核</span>
+          {% elif user and user.role=='freelancer' and p.my_delivery_count|default(0) > 0 %}
+            <span class="badge green">待審核</span>
+          {% elif p.status=='reopened' %}
+            <span class="badge red">被退件</span>
+          {% endif %}
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="meta">
+      狀態：
+      {% if p.status=='open' %}投放中{% elif p.status=='in_progress' %}進行中{% elif p.status=='reopened' %}被退件{% else %}已結案{% endif %}
+      ｜ 建立時間：{{ p.created_at }}
+    </div>
+
+    {% if p.description %}
+      <!-- 顯示前幾行摘要（CSS 會做 2~3 行夾斷） -->
+      <p class="excerpt">{{ p.description }}</p>
+    {% endif %}
+  </li>
+  {% else %}
+  <li class="empty">目前沒有專案。</li>
+  {% endfor %}
+</ul>
+</div>
+{% endblock %}

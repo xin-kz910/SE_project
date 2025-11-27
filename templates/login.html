@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}登入{% endblock %}
+
+{% block content %}
+<div class="section-card" style="max-width:520px;margin:auto">
+  <h2>登入</h2>
+
+  <form action="/login" method="post" class="form" novalidate>
+    <div class="field">
+      <label for="username">帳號（Username）</label>
+      <input id="username" name="username" type="text" required autocomplete="username" />
+    </div>
+    <div class="field">
+      <label for="password">密碼（Password）</label>
+      <input id="password" name="password" type="password" required autocomplete="current-password" />
+    </div>
+
+    {% if request.query_params.get('e') %}
+    <p class="form-error">帳號或密碼錯誤。</p>
+    {% endif %}
+
+    <div class="form-actions">
+      <button type="submit" class="btn btn-primary" style="width:100%">登入</button>
+    </div>
+    <p class="help" style="text-align:center;margin-top:8px">
+      還沒有帳號？ <a href="/register">前往註冊</a>
+    </p>
+  </form>
+</div>
+{% endblock %}
