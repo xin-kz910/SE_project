@@ -33,7 +33,20 @@
 
 <ul class="project-list">
   {% for p in projects %}
-  <li class="card is-{{ 'open' if p.status=='open' else ('progress' if p.status=='in_progress' else ('reopened' if p.status=='reopened' else 'closed')) }}">
+  <li class="card 
+    {% if p.status=='open' and p.deadline and p.deadline < now %}
+        is-closed        {# ⭐ 已截止 → 用 closed 樣式（灰色） #}
+    {% elif p.status=='open' %}
+        is-open
+    {% elif p.status=='in_progress' %}
+        is-progress
+    {% elif p.status=='reopened' %}
+        is-reopened
+    {% else %}
+        is-closed
+    {% endif %}
+  ">
+
     <!-- ✅ 整張卡片的透明連結：一定要是第一個子元素 -->
     <a class="card-link" href="/projects/{{ p.id }}" aria-label="查看詳情"></a>
 
@@ -44,6 +57,12 @@
         <span class="card-title-text">{{ p.title }}</span>
       </div>
       <div class="badges">
+
+        {# ⭐ 唯一新增：投標時間截止判斷 ⭐ #}
+        {% if p.deadline and p.deadline < now %}
+          <span class="badge gray">已截止</span>
+        {% endif %}
+
         {% if user and user.role=='client' and tab=='open' and p.bid_count is defined %}
           <span class="badge blue">📝 {{ p.bid_count }} 位報價</span>
         {% endif %}
@@ -59,14 +78,29 @@
             <span class="badge red">被退件</span>
           {% endif %}
         {% endif %}
-      </div>
+	  </div>
     </div>
 
-    <div class="meta">
+<div class="meta">
       狀態：
-      {% if p.status=='open' %}投放中{% elif p.status=='in_progress' %}進行中{% elif p.status=='reopened' %}被退件{% else %}已結案{% endif %}
+
+      {# ⭐ 新增：open 但已過截止時間 → 顯示已截止 ⭐ #}
+      {% if p.status=='open' and p.deadline and p.deadline < now %}
+          已截止
+
+      {% elif p.status=='open' %}
+          投放中
+      {% elif p.status=='in_progress' %}
+          進行中
+      {% elif p.status=='reopened' %}
+          被退件
+      {% else %}
+          已結案
+      {% endif %}
+
       ｜ 建立時間：{{ p.created_at }}
-    </div>
+</div>
+
 
     {% if p.description %}
       <!-- 顯示前幾行摘要（CSS 會做 2~3 行夾斷） -->

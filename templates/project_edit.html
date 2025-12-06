@@ -12,6 +12,13 @@
       <label>專案描述</label>
       <textarea name="description" required>{{ project.description }}</textarea>
     </div>
+	<div class="field">
+	 <label for="deadline">投標截止時間</label>
+	 <input id="deadline" name="deadline" type="datetime-local"
+			value="{{ project.deadline|replace(' ', 'T') if project.deadline }}">
+	 <small class="help">改成未來時間即可重新開放投標。</small>
+	</div>
+
     <div class="form-actions">
       <button type="submit" class="btn btn-primary">儲存變更</button>
       <a href="/projects/{{ project.id }}" class="btn">取消</a>
