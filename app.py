@@ -16,6 +16,8 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from starlette.middleware.sessions import SessionMiddleware  
 from db import get_conn
 import psycopg 
+import os
+import uuid
 
 # --- 初始化 ---
 try:  # 雜湊函式載入
@@ -46,16 +48,25 @@ def projects_list(request: Request):
         # 未登入（訪客）：僅顯示投放中
         if not user:
             cur.execute(""" 
-                SELECT p.id, p.title, p.status, p.created_at,
-                       LEFT(p.description, 200) AS description
+                SELECT p.id, p.title, p.status, p.created_at, p.deadline,
+                    LEFT(p.description, 200) AS description
                 FROM projects p
                 WHERE p.status='open'
                 ORDER BY p.id DESC
             """)
             projects = [
-                {"id": a, "title": b, "status": c, "created_at": d, "description": e}
-                for (a, b, c, d, e) in cur.fetchall()  # 取出所有列
+                {
+                    "id": a,
+                    "title": b,
+                    "status": c,
+                    "created_at": d,
+                    "deadline": e,
+                    "description": f
+                }
+                for (a, b, c, d, e, f) in cur.fetchall()
             ]
+
+
 
         # 委託人
         elif user["role"] == "client":
@@ -74,7 +85,7 @@ def projects_list(request: Request):
             # 清單
             if tab == "open":  # 投放中
                 cur.execute("""
-                    SELECT p.id, p.title, p.status, p.created_at,
+                    SELECT p.id, p.title, p.status, p.created_at, p.deadline,
                            LEFT(p.description, 200) AS description,
                            (SELECT COUNT(*) FROM bids b WHERE b.project_id=p.id) AS bid_count
                     FROM projects p
@@ -82,14 +93,21 @@ def projects_list(request: Request):
                     ORDER BY p.id DESC
                 """, (user["id"],))
                 projects = [
-                    {"id": a, "title": b, "status": c, "created_at": d,
-                     "description": e, "bid_count": f}
-                    for (a, b, c, d, e, f) in cur.fetchall()
+                    {
+                        "id": a,
+                        "title": b,
+                        "status": c,
+                        "created_at": d,
+                        "deadline": e,
+                        "description": f,
+                        "bid_count": g
+                    }
+                    for (a, b, c, d, e, f, g) in cur.fetchall()
                 ]
 
             elif tab == "progress":  # 進行中
                 cur.execute("""
-                    SELECT p.id, p.title, p.status, p.created_at,
+                    SELECT p.id, p.title, p.status, p.created_at, 
                            LEFT(p.description, 200) AS description,
                            (SELECT COUNT(*) FROM deliveries d WHERE d.project_id=p.id) AS delivery_count
                     FROM projects p
@@ -138,7 +156,7 @@ def projects_list(request: Request):
             # 清單
             if tab == "open":
                 cur.execute("""
-                    SELECT p.id, p.title, p.status, p.created_at,
+                    SELECT p.id, p.title, p.status, p.created_at, p.deadline,
                            LEFT(p.description, 200) AS description,
                            (SELECT COUNT(*) FROM bids b
                             WHERE b.project_id=p.id AND b.freelancer_id=%s) AS has_bid
@@ -147,10 +165,18 @@ def projects_list(request: Request):
                     ORDER BY p.id DESC
                 """, (user["id"],))
                 projects = [
-                    {"id": a, "title": b, "status": c, "created_at": d,
-                     "description": e, "has_bid": (f > 0)}
-                    for (a, b, c, d, e, f) in cur.fetchall()
+                    {
+                        "id": a,
+                        "title": b,
+                        "status": c,
+                        "created_at": d,
+                        "deadline": e,
+                        "description": f,
+                        "has_bid": (g > 0)
+                    }
+                    for (a, b, c, d, e, f, g) in cur.fetchall()
                 ]
+   
 
             elif tab == "progress":
                 cur.execute("""
@@ -185,7 +211,7 @@ def projects_list(request: Request):
 
     return templates.TemplateResponse(
         "projects_list.html",
-        {"request": request, "user": user, "tab": tab, "projects": projects, "stats": stats},
+        {"request": request, "user": user, "tab": tab, "projects": projects, "stats": stats,"now": datetime.now()}
     )
 
 
@@ -200,25 +226,40 @@ def project_create_page(request: Request):
     return templates.TemplateResponse("project_create.html", {"request": request})
 
 
+from datetime import datetime
+
 @app.post("/projects/create")
 def project_create(request: Request,
                    title: str = Form(...),
                    description: str = Form(...),
-                   budget: Optional[int] = Form(None)):
+                   budget: Optional[int] = Form(None),
+                   deadline: str = Form(None)):  # ⭐ 新增 deadline
     user = current_user(request)
-    # 後端再次保護
+    
+    # 再次保護：未登入或不是 client 無法建立專案
     if not user:
         return RedirectResponse("/login", 302)
     if user["role"] != "client":
         return RedirectResponse("/", 302)
 
+    # ⭐ 轉換 deadline 字串（datetime-local → datetime）
+    dl_value = None
+    if deadline:
+        try:
+            dl_value = datetime.fromisoformat(deadline)
+        except Exception:
+            dl_value = None   # 轉換錯誤時避免炸掉
+
+    # ⭐ 寫入資料庫（包含 deadline）
     with get_conn() as conn, conn.cursor() as cur:
         cur.execute("""
-            INSERT INTO projects (title, description, client_id, budget)
-            VALUES (%s, %s, %s, %s)
-        """, (title, description, user["id"], budget))
-        conn.commit()  # 確保有被寫入
+            INSERT INTO projects (title, description, client_id, budget, deadline)
+            VALUES (%s, %s, %s, %s, %s)
+        """, (title, description, user["id"], budget, dl_value))
+        conn.commit()
+
     return RedirectResponse("/", 302)
+
 
 
 # ----------------
@@ -239,6 +280,7 @@ def project_detail(request: Request, id: int):
                 p.description,
                 p.status,
                 p.created_at,
+                p.deadline, 
                 p.budget,                         
                 u.username      AS client_name,
                 u.id            AS client_id,
@@ -263,6 +305,7 @@ def project_detail(request: Request, id: int):
             "description": row["description"],
             "status": status,
             "created_at": row["created_at"],
+            "deadline": row["deadline"],
             "budget": row["budget"],
             "client_name": row["client_name"],
             "client_id": row["client_id"],
@@ -275,7 +318,7 @@ def project_detail(request: Request, id: int):
     with get_conn() as conn, conn.cursor(row_factory=dict_row) as cur:
         if user and user["role"] == "client" and user["id"] == project["client_id"]: # 案主可以看到所有人的報價
             cur.execute("""
-                SELECT b.id, b.price, b.message, b.created_at, fu.username AS freelancer
+                SELECT b.id, b.price, b.message, b.created_at, b.proposal_filename, b.proposal_original_name, fu.username AS freelancer
                 FROM bids b
                 JOIN users fu ON fu.id = b.freelancer_id
                 WHERE b.project_id = %s
@@ -284,7 +327,7 @@ def project_detail(request: Request, id: int):
             bids = cur.fetchall()
         elif user and user["role"] == "freelancer":
             cur.execute("""
-                SELECT id, price, message, created_at
+                SELECT id, price, message, created_at, proposal_filename, proposal_original_name
                 FROM bids
                 WHERE project_id=%s AND freelancer_id=%s
             """, (id, user["id"]))
@@ -305,13 +348,13 @@ def project_detail(request: Request, id: int):
             FROM deliveries d
             JOIN users u ON u.id = d.freelancer_id
             WHERE d.project_id = %s
-            ORDER BY d.created_at DESC
+            ORDER BY d.created_at ASC
         """, (id,))
         deliveries = cur.fetchall()
 
     return templates.TemplateResponse(
         "project_detail.html",
-        {"request": request, "project": project, "user": user, "bids": bids, "deliveries": deliveries}
+        {"request": request, "project": project, "user": user, "bids": bids, "deliveries": deliveries, "now": datetime.now()}
     )
 
 
@@ -343,10 +386,11 @@ def edit_project_page(request: Request, project_id: int):
         "project": {"id": pid, "title": title, "description": desc}
     })
 
-
 @app.post("/projects/{project_id}/edit")
 def edit_project_submit(request: Request, project_id: int,
-                        title: str = Form(...), description: str = Form(...)):
+                        title: str = Form(...), 
+                        description: str = Form(...),
+                        deadline: str = Form(None)):      # ⭐ 新增 deadline 欄位
     user = current_user(request)
     if not user:
         return RedirectResponse("/login", 302)
@@ -357,19 +401,70 @@ def edit_project_submit(request: Request, project_id: int,
         row = cur.fetchone()
         if not row or row[0] != user["id"] or row[1] != "open":
             return RedirectResponse(f"/projects/{project_id}", 302)
-        
+
         # 有報價就不能編輯
         cur.execute("SELECT EXISTS (SELECT 1 FROM bids WHERE project_id=%s)", (project_id,))
         has_bids = cur.fetchone()[0]
         if has_bids:
             return RedirectResponse(f"/projects/{project_id}?e=edit_locked", 302)
 
+        # ⭐ 轉換 deadline → datetime（若為空則保留 None）
+        dl_value = None
+        if deadline:
+            try:
+                dl_value = datetime.fromisoformat(deadline)
+            except:
+                dl_value = None
+
+        # ⭐ 更新含 deadline
         cur.execute("""
-            UPDATE projects SET title=%s, description=%s WHERE id=%s
-        """, (title, description, project_id))
+            UPDATE projects
+            SET title=%s, description=%s, deadline=%s
+            WHERE id=%s
+        """, (title, description, dl_value, project_id))
+
         conn.commit()
 
     return RedirectResponse(f"/projects/{project_id}", 302)
+
+from datetime import datetime, timedelta
+
+@app.post("/projects/{project_id}/reopen_bids")
+def reopen_bids(request: Request, project_id: int):
+    user = current_user(request)
+
+    # 必須登入
+    if not user:
+        return RedirectResponse("/login", 302)
+
+    with get_conn() as conn, conn.cursor() as cur:
+
+        # 檢查該專案是否屬於此委託人
+        cur.execute("SELECT client_id, deadline FROM projects WHERE id=%s", (project_id,))
+        row = cur.fetchone()
+        if not row:
+            return RedirectResponse("/", 302)
+
+        client_id, old_deadline = row
+
+        if client_id != user["id"]:
+            return RedirectResponse(f"/projects/{project_id}", 302)
+
+        # ⭐ 重新設定 deadline（往後延 7 天）
+        new_deadline = datetime.now() + timedelta(days=7)
+
+        cur.execute("""
+            UPDATE projects 
+            SET deadline=%s
+            WHERE id=%s
+        """, (new_deadline, project_id))
+
+        conn.commit()
+
+    # Done，回到專案頁面
+    return RedirectResponse(f"/projects/{project_id}?reopened=1", 302)
+
+
 
 
 # ----------------
@@ -398,9 +493,8 @@ def delete_project(request: Request, project_id: int):
 
     return RedirectResponse("/", 302)
 
-
 # ----------------
-# 接受報價（選標）
+# 接受報價（完整規格）
 # ----------------
 @app.post("/projects/{project_id}/award/{bid_id}")
 def award_bid(request: Request, project_id: int, bid_id: int):
@@ -408,14 +502,45 @@ def award_bid(request: Request, project_id: int, bid_id: int):
     if not user:
         return RedirectResponse("/login", 302)
 
-    with get_conn() as conn, conn.cursor() as cur:
-        # 取得專案確認是本人委託
-        cur.execute("SELECT client_id FROM projects WHERE id=%s", (project_id,))
-        row = cur.fetchone()
-        if not row or row[0] != user["id"]:
+    from datetime import datetime
+
+    with get_conn() as conn, conn.cursor(row_factory=dict_row) as cur:
+
+        # 1️⃣ 取得專案資訊：確認委託人 + deadline + 是否已選標
+        cur.execute("""
+            SELECT client_id, awarded_bid_id, deadline
+            FROM projects
+            WHERE id=%s
+        """, (project_id,))
+        project = cur.fetchone()
+
+        if not project:
+            return RedirectResponse("/", 302)
+
+        # 不是委託人 -> 禁止
+        if project["client_id"] != user["id"]:
             return RedirectResponse(f"/projects/{project_id}", 302)
 
-        # 更新狀態與中標報價
+        # 已選過人 -> 禁止重選
+        if project["awarded_bid_id"]:
+            return RedirectResponse(f"/projects/{project_id}?already_awarded=1", 303)
+
+        # 截止前不得選人
+        if project["deadline"] and datetime.now() < project["deadline"]:
+            return RedirectResponse(f"/projects/{project_id}?too_early=1", 303)
+
+        # 2️⃣ 確認 bid 是否真的屬於此 project
+        cur.execute("""
+            SELECT freelancer_id
+            FROM bids
+            WHERE id=%s AND project_id=%s
+        """, (bid_id, project_id))
+        bid = cur.fetchone()
+
+        if not bid:
+            return RedirectResponse(f"/projects/{project_id}?invalid_bid=1", 303)
+
+        # 3️⃣ 寫入得標者 + 改狀態為進行中
         cur.execute("""
             UPDATE projects
             SET awarded_bid_id=%s, status='in_progress'
@@ -423,8 +548,8 @@ def award_bid(request: Request, project_id: int, bid_id: int):
         """, (bid_id, project_id))
         conn.commit()
 
-    return RedirectResponse(f"/projects/{project_id}", 302)
-
+    # 成功訊息（前端可 popup）
+    return RedirectResponse(f"/projects/{project_id}?awarded=1", 303)
 
 # ----------------
 # 上傳結案檔案
@@ -443,6 +568,8 @@ async def upload_delivery(
     user = current_user(request)
     if not user:
         return RedirectResponse("/login", 302)
+
+    # 僅接案者
     if user["role"] != "freelancer":
         return RedirectResponse(f"/projects/{project_id}", 302)
 
@@ -455,52 +582,45 @@ async def upload_delivery(
             WHERE p.id = %s
         """, (project_id,))
         row = cur.fetchone()
+
         if not row:
             return RedirectResponse(f"/projects/{project_id}", 302)
 
         proj_status, awarded_freelancer_id = row
 
-        # 僅限中標者，且狀態必須允許上傳
+        # 僅限中標者，上傳必須在 in_progress 或 reopened
         if awarded_freelancer_id != user["id"] or proj_status not in ('in_progress', 'reopened'):
             return RedirectResponse(f"/projects/{project_id}", 302)
 
-        # 檢查是否已上傳過（同一專案、同一人）
+        # 查詢此前是否已上傳過任何版本
         cur.execute("""
-            SELECT id, filename
-            FROM deliveries
+            SELECT id FROM deliveries
             WHERE project_id=%s AND freelancer_id=%s
         """, (project_id, user["id"]))
-        prev = cur.fetchall()
+        existing_deliveries = cur.fetchall()
 
-        if prev:
-            # 非退件狀態：拒絕重複上傳
-            if proj_status != 'reopened':
-                return RedirectResponse(f"/projects/{project_id}?filedup=1", 302)
-            # 退件狀態：清理舊檔與紀錄後才允許上傳
-            for _id, fname in prev:
-                p = UPLOAD_DIR / fname
-                if p.exists():
-                    p.unlink()
-            cur.execute("""
-                DELETE FROM deliveries
-                WHERE project_id=%s AND freelancer_id=%s
-            """, (project_id, user["id"]))
-            conn.commit()
+        # 非退件狀態 → 不可重複上傳
+        if existing_deliveries and proj_status != 'reopened':
+            return RedirectResponse(f"/projects/{project_id}?filedup=1", 302)
 
-    # 儲存新檔
-    dest = UPLOAD_DIR / file.filename
-    with open(dest, "wb") as f:
+    # --------------- 儲存檔案（不覆蓋舊檔案）-----------------
+
+    # 用 UUID 產生唯一檔名，避免覆蓋舊檔案
+    unique_filename = f"{uuid.uuid4().hex}_{file.filename}"
+    dest_path = UPLOAD_DIR / unique_filename
+
+    with open(dest_path, "wb") as f:
         f.write(await file.read())
 
-    # 寫入DB
+    # 新版本 = 新增一筆紀錄，不刪除任何舊的！
     with get_conn() as conn, conn.cursor() as cur:
         cur.execute("""
             INSERT INTO deliveries (project_id, freelancer_id, filename, note)
-            VALUES (%s,%s,%s,%s)
-        """, (project_id, user["id"], file.filename, note))
+            VALUES (%s, %s, %s, %s)
+        """, (project_id, user["id"], unique_filename, note))
         conn.commit()
 
-    # 若是退件狀態，上傳後自動改回進行中
+    # 如果專案是退件狀態 → 上傳新版後自動回到進行中
     with get_conn() as conn, conn.cursor() as cur:
         cur.execute("""
             UPDATE projects
@@ -510,6 +630,7 @@ async def upload_delivery(
         conn.commit()
 
     return RedirectResponse(f"/projects/{project_id}", 302)
+
 
 
 # ----------------
@@ -539,7 +660,6 @@ def close_project(request: Request, project_id: int):
 
     return RedirectResponse(f"/projects/{project_id}", 302)
 
-# 退件
 @app.post("/projects/{project_id}/reject")
 def reject_project(request: Request, project_id: int):
     user = current_user(request)
@@ -552,58 +672,110 @@ def reject_project(request: Request, project_id: int):
         if not row or row[0] != user["id"] or row[1] != "in_progress":
             return RedirectResponse(f"/projects/{project_id}", 302)
 
-        # 改成退件狀態(刪掉檔案 且 接案人可以在船檔案)
-        cur.execute("""
-            SELECT b.freelancer_id, d.filename
-            FROM projects p
-            JOIN bids b ON b.id = p.awarded_bid_id
-            LEFT JOIN deliveries d ON d.project_id = p.id AND d.freelancer_id = b.freelancer_id
-            WHERE p.id=%s
-        """, (project_id,))
-        rows = cur.fetchall()
-        for fid, fname in rows:
-            if fname:
-                file_path = UPLOAD_DIR / fname
-                if file_path.exists():
-                    file_path.unlink()
-        cur.execute("DELETE FROM deliveries WHERE project_id=%s", (project_id,))
-        conn.commit()
+        # ⭐ 不刪任何 upload，也不刪 deliveries
+        # ⭐ 只把專案狀態改成 reopened（允許接案人上傳新版本）
 
-        # 更新狀態為退件
-        cur.execute("UPDATE projects SET status='reopened' WHERE id=%s", (project_id,))
+        cur.execute("""
+            UPDATE projects
+            SET status='reopened'
+            WHERE id=%s
+        """, (project_id,))
         conn.commit()
 
     return RedirectResponse(f"/projects/{project_id}", 302)
 
 
-# ----------------
-# 送出報價
-# ----------------
 @app.post("/bids/{project_id}")
-def create_bid(request: Request, project_id: int,
-               price: int = Form(...),
-               message: str = Form("")):
+def create_bid(
+    request: Request,
+    project_id: int,
+    price: int = Form(...),
+    message: str = Form(""),
+    proposal_file: UploadFile | None = File(None),
+):
     user = current_user(request)
     if not user:
         return RedirectResponse("/login", 302)
     if user["role"] != "freelancer":
         return RedirectResponse(f"/projects/{project_id}", 302)
 
-    with get_conn() as conn, conn.cursor() as cur:
-        # 防止重複報價（也可交給 UNIQUE，但這樣訊息更友善）
-        cur.execute("SELECT 1 FROM bids WHERE project_id=%s AND freelancer_id=%s",
-                    (project_id, user["id"]))
-        if cur.fetchone():  # 關閉連線防重檢查
-            return RedirectResponse(f"/projects/{project_id}?dup=1", 302)  # 倒回擬以投標
+    from datetime import datetime
 
+    with get_conn() as conn, conn.cursor() as cur:
+
+        # 取得 deadline
+        cur.execute("SELECT deadline FROM projects WHERE id=%s", (project_id,))
+        row = cur.fetchone()
+        deadline = row[0] if row else None
+
+        if deadline and datetime.now() > deadline:
+            return RedirectResponse(f"/projects/{project_id}?closed=1", 302)
+
+        # 防止重複報價
+        cur.execute(
+            "SELECT 1 FROM bids WHERE project_id=%s AND freelancer_id=%s",
+            (project_id, user["id"])
+        )
+        if cur.fetchone():
+            return RedirectResponse(f"/projects/{project_id}?dup=1", 302)
+
+        # ⭐ 這兩個欄位要寫入 DB
+        proposal_filename = None             # 系統命名
+        proposal_original_name = None        # 使用者上傳的原始檔名
+
+        # 處理 PDF
+        if proposal_file and proposal_file.filename:
+
+            # 存使用者原始檔名
+            proposal_original_name = proposal_file.filename  
+
+            filename = proposal_file.filename.lower()
+
+            # 副檔名檢查
+            if not filename.endswith(".pdf"):
+                return RedirectResponse(f"/projects/{project_id}?pdf=0", status_code=303)
+
+            # MIME TYPE 檢查
+            if proposal_file.content_type != "application/pdf":
+                return RedirectResponse(f"/projects/{project_id}?pdf=0", status_code=303)
+
+            # uploads 目錄
+            upload_dir = os.path.join("www", "uploads")
+            os.makedirs(upload_dir, exist_ok=True)
+
+            # 🔥 使用 UUID 產生唯一檔名
+            unique_id = uuid.uuid4().hex
+            proposal_filename = f"proposal_{project_id}_{user['id']}_{unique_id}.pdf"
+
+            file_path = os.path.join(upload_dir, proposal_filename)
+
+            # 寫檔
+            with open(file_path, "wb") as f:
+                f.write(proposal_file.file.read())
+
+        # ⭐⭐ 寫入 DB（新增 proposal_original_name）
         cur.execute("""
-            INSERT INTO bids (project_id, freelancer_id, price, message)
-            VALUES (%s,%s,%s,%s)
-        """, (project_id, user["id"], price, message))
+            INSERT INTO bids (
+                project_id,
+                freelancer_id,
+                price,
+                message,
+                proposal_filename,
+                proposal_original_name
+            )
+            VALUES (%s, %s, %s, %s, %s, %s)
+        """, (
+            project_id,
+            user["id"],
+            price,
+            message,
+            proposal_filename,
+            proposal_original_name
+        ))
+
         conn.commit()
 
-    return RedirectResponse(f"/projects/{project_id}", 302)
-
+    return RedirectResponse(f"/projects/{project_id}?bid_uploaded=1", status_code=303)
 
 # ----------------
 # 登入 / 登出 / 註冊

@@ -3,12 +3,54 @@
 {% block title %}{{ project.title }}{% endblock %}
 
 {% block content %}
+
+{# ============================
+      PDF 錯誤訊息
+============================ #}
+{% if request.query_params.get('pdf') == '0' %}
+<div id="pdf-error" style="background:#ffe6e6;color:#c00;padding:12px 18px;border:1px solid #ffb3b3;border-radius:6px;font-weight:bold;margin-bottom:16px;box-shadow:0 2px 6px rgba(0,0,0,0.1);">
+    ⚠ 請上傳 PDF 檔案（.pdf）
+</div>
+
+<script>
+  setTimeout(() => {
+      const el = document.getElementById('pdf-error');
+      if (el) {
+          el.style.transition = "opacity 0.6s ease";
+          el.style.opacity = "0";
+          setTimeout(() => el.remove(), 600);
+      }
+  }, 3000);
+</script>
+{% endif %}
+
+{# ============================
+      投標成功提示
+============================ #}
+{% if request.query_params.get('bid_uploaded') == '1' %}
+<div id="bid-toast"
+     style="background:#d4f9d4;color:#0b7a0b;padding:12px 18px;border:1px solid #8bd98b;border-radius:6px;font-weight:bold;margin-bottom:16px;text-align:center;box-shadow:0 2px 6px rgba(0,0,0,0.15);">
+    🟢 提案計畫書與報價已成功送出！
+</div>
+
+<script>
+setTimeout(() => {
+    const el = document.getElementById('bid-toast');
+    if (el) {
+        el.style.transition = "opacity 0.6s ease";
+        el.style.opacity = "0";
+        setTimeout(() => el.remove(), 600);
+    }
+}, 3000);
+</script>
+{% endif %}
+
 <div class="detail-header">
   <div>
     <h2 style="margin:0">{{ project.title }}</h2>
 
-    {# ---- 狀態正規化 ＆ 對照表 ---- #}
-    {% set s = (project.status|string)|trim|lower %}
+    {# 狀態對照表 #}
+    {% set s = (project.status|string)|lower|trim %}
     {% set status_map = {
       'open':        ['投放中',   'blue'],
       'in_progress': ['進行中',   'yellow'],
@@ -28,6 +70,9 @@
       {% if project.budget is not none %}
         ｜ <span class="budget-pill">💰 預算：{{ project.budget }} 元</span>
       {% endif %}
+      {% if project.deadline %}
+        ｜ 截止：{{ project.deadline }}
+      {% endif %}
     </div>
   </div>
 
@@ -35,7 +80,7 @@
     <div class="form-actions">
       <a href="/projects/{{ project.id }}/edit" class="btn">編輯</a>
       <form action="/projects/{{ project.id }}/delete" method="post"
-            onsubmit="return confirm('確定刪除這個專案嗎？此動作無法復原。');"
+            onsubmit="return confirm('確定刪除這個專案嗎？');"
             style="display:inline-block">
         <button type="submit" class="btn btn-danger">刪除</button>
       </form>
@@ -44,7 +89,6 @@
 </div>
 
 <div class="detail-grid{% if not user %} one-col{% endif %}">
-  <!-- 左：內容 & 上傳/審核流程 -->
   <section class="panel">
     <h3>專案描述</h3>
     <p style="white-space:pre-wrap">{{ project.description }}</p>
@@ -55,68 +99,76 @@
       <p class="meta"><b>預算：</b>—</p>
     {% endif %}
 
-    {# 接案者尚未投標：顯示我要報價 #}
-    {% if user and user.role == 'freelancer' and not bids %}
-      <hr style="border:none;border-top:1px solid var(--line);margin:12px 0" />
-      <h3>我要報價</h3>
-      <form action="/bids/{{ project.id }}" method="post" class="form">
-        <div class="field">
-          <label>金額（NTD）</label>
-          <input type="number" name="price" min="0" step="100" required>
-        </div>
-        <div class="field">
-          <label>留言</label>
-          <textarea name="message" rows="3" placeholder="可簡述工時/交付物/注意事項"></textarea>
-        </div>
-        <div class="form-actions">
-          <button type="submit" class="btn btn-primary">送出報價</button>
-        </div>
-      </form>
+    {# =============================
+          接案者投標區
+    ============================== #}
+    {% if user and user.role == 'freelancer' %}
+        {% if project.deadline and project.deadline < now %}
+            <hr><p style="color:#c00;font-weight:bold;">⚠ 投標已截止</p>
+
+        {% elif not bids %}
+            <hr><h3>我要報價</h3>
+
+            <form action="/bids/{{ project.id }}" method="post" enctype="multipart/form-data" class="form">
+              <div class="field">
+                <label>金額（NTD）</label>
+                <input type="number" name="price" min="0" step="100" required>
+              </div>
+              <div class="field">
+                <label>留言</label>
+                <textarea name="message" rows="3"></textarea>
+              </div>
+              <div class="field">
+                <label>上傳提案計畫書（PDF）</label>
+                <input type="file" name="proposal_file" accept="application/pdf" required>
+              </div>
+              <div class="form-actions">
+                <button type="submit" class="btn btn-primary">送出報價</button>
+              </div>
+            </form>
+        {% endif %}
     {% endif %}
 
-    {# 接案者本人（中標者）可上傳：in_progress 或 reopened #}
+    {# =============================
+          中標者上傳結案檔案
+    ============================== #}
     {% if user and user.role == 'freelancer' and user.id == project.awarded_freelancer_id %}
-    {% set my_uploads = (deliveries | selectattr('freelancer','equalto', user.username) | list) %}
-    <hr style="border:none;border-top:1px solid var(--line);margin:12px 0" />
+      {% set my_uploads = (deliveries | selectattr('freelancer','equalto', user.username) | list) %}
+      <hr>
 
-    {% if is_prog or is_reopened %}
-      {% if my_uploads|length > 0 and not is_reopened %}
-        <div class="form-alert" style="color:gray; margin-bottom:8px;">
-          ✅ 你已上傳結案檔案，請等待委託人審核。
-        </div>
-      {% else %}
-        <h3>上傳結案檔案{% if is_reopened %}（退件後重新上傳）{% endif %}</h3>
-        {% if is_reopened %}
-          <p class="form-error">⚠️ 專案已被退件，請重新上傳修正版！</p>
+      {% if is_prog or is_reopened %}
+        {% if my_uploads|length > 0 and not is_reopened %}
+          <div class="form-alert" style="color:gray;">✅ 你已上傳結案檔案，請等待委託人審核。</div>
+        {% else %}
+          <h3>上傳結案檔案{% if is_reopened %}（退件後重新上傳）{% endif %}</h3>
+
+          {% if is_reopened %}
+            <p class="form-error">⚠️ 專案已被退件，請重新上傳修正版！</p>
+          {% endif %}
+
+          <form action="/deliveries/{{ project.id }}" method="post" enctype="multipart/form-data" class="form">
+            <div class="field"><label>說明</label><textarea name="note" rows="3"></textarea></div>
+            <div class="field"><input type="file" name="file" required></div>
+            <div class="form-actions"><button type="submit" class="btn btn-primary">上傳檔案</button></div>
+          </form>
         {% endif %}
-
-        {% if request.query_params.get('filedup') == '1' %}
-          <div class="form-alert error" style="margin-bottom:8px;">
-            你已上傳過檔案。若要重傳，請委託人按「退件」後再上傳新版。
-          </div>
-        {% endif %}
-
-        <form action="/deliveries/{{ project.id }}" method="post" enctype="multipart/form-data" class="form">
-          <div class="field"><label>說明</label><textarea name="note" rows="3"></textarea></div>
-          <div class="field"><input type="file" name="file" required></div>
-          <div class="form-actions"><button type="submit" class="btn btn-primary">上傳檔案</button></div>
-        </form>
+      {% elif is_closed %}
+        <p style="color:green;">✅ 專案已結案，感謝你的合作！</p>
       {% endif %}
-
-    {% elif is_closed %}
-      <p style="color:green;">✅ 專案已結案，感謝你的合作！</p>
     {% endif %}
-
-  {% endif %}
-
   </section>
 
+  {# =============================
+          右側區塊（根據登入者角色顯示）
+    ============================== #}
   {% if user %}
-  <!-- 右：報價與結案區 -->
   <aside class="panel">
-    {% if user and user.role == 'client' %}
+
+    {# ======== CLIENT 區 ======== #}
+    {% if user.role == 'client' %}
+
       <h3>收到的報價</h3>
-      {% if bids and bids|length %}
+      {% if bids %}
         <ul>
           {% for b in bids %}
             <li style="margin-bottom:12px">
@@ -124,59 +176,104 @@
               <small>（{{ b.created_at }}）</small><br>
               <em>{{ b.message }}</em>
 
-              {% if is_open %}
-                <div style="margin-top:8px;">
-                  <form action="/projects/{{ project.id }}/award/{{ b.id }}" method="post">
-                    <button type="submit" class="btn btn-success btn-sm">接受報價</button>
-                  </form>
-                </div>
-              {% elif project.awarded_bid_id == b.id %}
-                <span class="badge green" style="margin-top:8px;display:inline-block;">★ 已接受</span>
+              {% if b.proposal_filename %}
+              <div style="margin-top:6px;">
+                📄 <a href="/www/uploads/{{ b.proposal_filename }}"
+                      download="{{ b.proposal_original_name }}"
+                      target="_blank"
+                      style="color:#0b79d0;font-weight:bold;">
+                      {{ b.proposal_original_name }}
+                    </a>
+              </div>
+              {% endif %}
+
+              {# ===== 接受報價規則 ===== #}
+              {% if project.awarded_bid_id == b.id %}
+                <span class="badge green">★ 已接受（已委託）</span>
+
+              {% elif project.awarded_bid_id %}
+                <span class="badge gray">已選定其他提案</span>
+
+              {% elif project.deadline and now < project.deadline %}
+                <span class="badge yellow">⏳ 截止後才能選擇</span>
+
+              {% elif is_open %}
+                <form action="/projects/{{ project.id }}/award/{{ b.id }}" method="post" style="margin-top:8px;">
+                  <button class="btn btn-success btn-sm">接受報價（委託）</button>
+                </form>
               {% endif %}
             </li>
           {% endfor %}
         </ul>
       {% else %}
-        <div class="empty">目前尚無報價。</div>
+        <p class="help">目前尚無報價。</p>
       {% endif %}
 
-      <hr style="border:none;border-top:1px solid var(--line);margin:12px 0" />
-      <h3>結案檔案</h3>
-      {% if deliveries and deliveries|length %}
-        <ul>
-          {% for d in deliveries %}
-            <li style="margin-bottom:6px">
-              <a href="/www/uploads/{{ d.filename }}" target="_blank">{{ d.filename }}</a>
-              <small>（上傳者：{{ d.freelancer }}，時間：{{ d.created_at }}）</small><br>
-              <em>{{ d.note }}</em>
-            </li>
-          {% endfor %}
-        </ul>
-      {% else %}
-        <div class="empty">目前尚無結案檔案。</div>
-      {% endif %}
+      {# 重新開放投標 #}
+	  {% if is_open and project.deadline and project.deadline < now and user.id == project.client_id %}
+		  <form action="/projects/{{ project.id }}/reopen_bids" method="post" style="margin:8px 0;">
+		  	  <button type="submit" class="btn btn-primary">🔄 重新開放投標（延長 7 天）</button>
+		  </form>
+	  {% endif %}
 
-      {% if user.id == project.client_id %}
-        {% if is_prog %}
-          {% if deliveries and deliveries|length %}
-            <form action="/projects/{{ project.id }}/close" method="post" style="display:inline-block">
-              <button type="submit" class="btn btn-success">✅ 確認結案</button>
-            </form>
-            <form action="/projects/{{ project.id }}/reject" method="post" style="display:inline-block;margin-left:8px">
-              <button type="submit" class="btn btn-danger">🚫 退件</button>
-            </form>
-          {% else %}
-            <p class="help">⚠️ 尚無上傳檔案，無法結案或退件。</p>
-          {% endif %}
-        {% elif is_closed %}
-          <p style="color:green;"><b>專案已結案 ✅</b></p>
-        {% elif is_reopened %}
-          <p style="color:#c00;"><b>已退件，等待接案人重新上傳</b></p>
-        {% endif %}
-      {% endif %}
-    {% elif user and user.role == 'freelancer' %}
+      <hr>
+
+	  <h3>結案檔案（歷史版本）</h3>
+
+	  {% if deliveries and deliveries|length %}
+	    <ul>
+		  {% for d in deliveries %}
+		    {% set version = loop.index %}
+		    <li style="margin-bottom:8px">
+
+			  <b>版本 v{{ version }}</b><br>
+
+			  <a href="/www/uploads/{{ d.filename }}" target="_blank">
+				  {{ d.filename.split('_', 1)[1] }}
+			  </a>
+
+			  <small>
+			    （上傳者：{{ d.freelancer }}｜時間：{{ d.created_at }}）
+			  </small>
+			  <br>
+
+			  {% if d.note %}
+			    <em>{{ d.note }}</em>
+			  {% endif %}
+
+		    </li>
+		  {% endfor %}
+	    </ul>
+	  {% else %}
+	    <p class="help">目前尚無結案檔案。</p>
+	  {% endif %}
+
+	  {% if user.id == project.client_id %}
+	    {% if is_prog %}
+		  {% if deliveries and deliveries|length %}
+		    <form action="/projects/{{ project.id }}/close" method="post" style="display:inline-block;">
+			  <button class="btn btn-success">✅ 確認結案</button>
+		    </form>
+		    <form action="/projects/{{ project.id }}/reject" method="post" style="display:inline-block;margin-left:8px;">
+			  <button class="btn btn-danger">🚫 退件</button>
+		    </form>
+		  {% else %}
+		    <p class="help">⚠️ 尚無上傳檔案，無法結案或退件。</p>
+		  {% endif %}
+	    {% elif is_closed %}
+		  <p style="color:green;"><b>專案已結案</b></p>
+	    {% elif is_reopened %}
+		  <p style="color:#c00;"><b>已退件，等待上傳新版本</b></p>
+	    {% endif %}
+	  {% endif %}
+
+
+
+    {# ======== FREELANCER 區 ======== #}
+    {% elif user.role == 'freelancer' %}
+
       <h3>我提交的報價</h3>
-      {% if bids and bids|length %}
+      {% if bids %}
         {% for b in bids %}
           {% if b.freelancer == user.username %}
             <p><b>金額：</b>{{ b.price }} 元</p>
@@ -187,10 +284,11 @@
         <p class="help">尚未提交報價。</p>
       {% endif %}
 
-      <hr style="border:none;border-top:1px solid var(--line);margin:12px 0" />
+      <hr>
+
       <h3>我上傳的結案檔案</h3>
       {% set my_uploads = (deliveries | selectattr('freelancer','equalto', user.username) | list) %}
-      {% if my_uploads|length %}
+      {% if my_uploads %}
         <ul>
           {% for d in my_uploads %}
             <li>
@@ -203,12 +301,13 @@
       {% else %}
         <p class="help">尚未上傳結案檔案。</p>
       {% endif %}
+
     {% endif %}
   </aside>
   {% endif %}
 </div>
 
-
+{# 返回列表按鈕 #}
 {% if is_open %}
   {% set back_url = '/?tab=open' %}
 {% elif is_prog or is_reopened %}
@@ -218,7 +317,9 @@
 {% else %}
   {% set back_url = '/' %}
 {% endif %}
+
 <p style="margin-top:16px">
   <a href="{{ back_url }}" class="btn">↩ 回列表</a>
 </p>
+
 {% endblock %}

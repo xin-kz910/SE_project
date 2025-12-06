@@ -3,7 +3,7 @@ import psycopg
 
 DB_NAME = "1141se"
 DB_USER = "postgres"
-DB_PASS = "123"
+DB_PASS = "112213067"
 DB_HOST = "localhost"
 DB_PORT = 5432
 
